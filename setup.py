@@ -56,6 +56,9 @@ install_requires = [
     'requests',
     'boto3',
     'google-cloud-storage',
+    'pluggy>=0.9.0, <0.14.0',
+    'attrs>=18.2.0',
+    'six>=1.10'
 ]
 if sys.version_info[0] == 2:
     install_requires.append('bz2file')
