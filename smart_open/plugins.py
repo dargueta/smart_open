@@ -14,10 +14,10 @@ if typing.TYPE_CHECKING:
 
 
 _protocol_hookspec = pluggy.HookspecMarker("smart_open_protocol")
-smart_open_protocol_hook = pluggy.HookimplMarker("smart_open_protocol")
+protocol_hook = pluggy.HookimplMarker("smart_open_protocol")
 
 _compression_hookspec = pluggy.HookspecMarker("smart_open_compression")
-smart_open_compression_hook = pluggy.HookimplMarker("smart_open_compression")
+compression_hook = pluggy.HookimplMarker("smart_open_compression")
 
 
 class SmartOpenFileSystemPlugin(object):
@@ -154,5 +154,55 @@ class SmartOpenCompressionPlugin(object):
     """Base class for all plugins implementing a compression codec."""
 
     @_compression_hookspec
-    def smart_open_implemented_compression(self):
-        """Declare what compression algorithms this plugin supports."""
+    def smart_open_implemented_compression_algorithms(self):
+        # type: () -> Union[str, Iterable[str]]
+        """Declare what compression algorithms this plugin supports.
+
+        Returns
+        -------
+
+        A string or iterable of strings of the file extensions that this plugin
+        recognizes.
+        """
+
+    @_compression_hookspec
+    def smart_open_supports_codec(self, uri, stream):
+        # type: (Uri, BinaryIO) -> bool
+        """Determine if this plugin supports the compression codec for the given
+        URI and/or file stream.
+
+        Parameters
+        ----------
+
+        uri: smart_open.smart_open_lib.Uri
+            The URI that smart_open will open.
+        stream: BinaryIO
+            The opened binary stream for the file that may need decompression.
+            This is solely provided for checking magic numbers in case the
+            extension doesn't provide enough information.
+
+        Returns
+        -------
+
+        A boolean indicating if this plugin supports the compression codec the
+        file is compressed with.
+        """
+
+    @compression_hook(hookwrapper=True)
+    def smart_open_supports_codec(self, uri, stream):
+        # type: (Uri, BinaryIO) -> Iterator[None]
+        """A wrapper for the :meth:`smart_open_supports_codec` hook to ensure the
+        stream pointer isn't moved after an implementation returns.
+        """
+        try:
+            initial_position = stream.tell()
+        except AttributeError:
+            # Stream doesn't support tell() so we have no way of resetting the
+            # stream pointer to where it was once the plugins return.
+            yield
+            return
+
+        try:
+            yield
+        finally:
+            stream.seek(initial_position)
