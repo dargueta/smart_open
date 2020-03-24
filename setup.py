@@ -53,7 +53,6 @@ install_requires = [
     'requests',
     'boto3',
     'google-cloud-storage',
-    'pluggy>=0.9.0, <0.14.0',
     'attrs>=18.2.0',
     'six>=1.10',
     'typing  ; python_version<"3.5"',
