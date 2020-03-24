@@ -16,16 +16,26 @@ from typing import MutableMapping
 
 import attr
 import pkg_resources
+import pluggy
 import six
 
 
 if typing.TYPE_CHECKING:
+    from typing import Iterator
+    from typing import List
+    from typing import Tuple
     from smart_open.smart_open_lib import Uri
     from smart_open.io_utils import IOMode
 
 
 ENTRY_POINT = "smart_open"
 """The name of the first half of the entry point we're using for plugins."""
+
+_protocol_hookspec = pluggy.HookspecMarker("smart_open.protocol")
+_compression_hookspec = pluggy.HookspecMarker("smart_open.compression")
+
+protocol_hook = pluggy.HookimplMarker("smart_open.protocol")
+compression_hook = pluggy.HookimplMarker("smart_open.compression")
 
 
 class SmartOpenIOPluginBase(abc.ABC):
@@ -296,10 +306,21 @@ class PluginRegistry(object):
     _registry = attr.ib(type=MutableMapping[str, SmartOpenIOPluginBase], default=None)
     _lock = attr.ib(type=threading.Lock, factory=threading.RLock)
 
-    def load_registered_plugins(self):
-        """Load all plugins registered for this registry's entry point."""
+    def load_registered_plugins(self, force=False):
+        # type: (bool) -> None
+        """Load all plugins registered for this registry's entry point.
+
+        Does nothing if plugins are already loaded unless ``force`` is True.
+
+        Parameters
+        ----------
+        force: bool
+            Reload all plugins even if they've already been loaded. Useful only if more
+            plugins have been added manually and the registry needs to know about it.
+        """
         with self._lock:
-            self._registry = discover_plugins(self.namespace, self.plugin_type)
+            if self._registry is None or force:
+                self._registry = discover_plugins(self.namespace, self.plugin_type)
 
     def get_plugin(self, plugin_name):
         # type: (str) -> SmartOpenIOPluginBase
@@ -315,8 +336,7 @@ class PluginRegistry(object):
         smart_open.plugins.NoSuchPluginError: The named plugin was not found.
         """
         with self._lock:
-            if self._registry is None:
-                self.load_registered_plugins()
+            self.load_registered_plugins()
             if plugin_name not in self._registry:
                 raise NoSuchPluginError(plugin_name, self.namespace)
             return self._registry[plugin_name]
@@ -343,9 +363,27 @@ class PluginRegistry(object):
         .. _TOCTOU bugs: https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use
         """
         with self._lock:
-            if self._registry is None:
-                self.load_registered_plugins()
+            self.load_registered_plugins()
             return plugin_name in self._registry
+
+    def list_plugin_names(self):
+        # type: () -> List[str]
+        """Get a list of the plugins in the registry."""
+        with self._lock:
+            self.load_registered_plugins()
+            return list(self._registry)
+
+    def iter_plugins(self):
+        # type: () -> Iterator[Tuple[str, SmartOpenIOPluginBase]]
+        """Return an iterator over tuples of the plugin name and object.
+
+        Consider this an equivalent to dict.iteritems() on Python 2 or dict.items() on
+        Python 3.
+        """
+        with self._lock:
+            self.load_registered_plugins()
+            for pair in six.iteritems(self._registry):
+                yield pair
 
 
 COMPRESSION_PLUGINS = PluginRegistry("compression", "compression codec")
