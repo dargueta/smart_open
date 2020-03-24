@@ -9,7 +9,6 @@
 
 import io
 import os
-import sys
 
 from setuptools import setup, find_packages
 
@@ -42,9 +41,7 @@ def read(fname):
 tests_require = [
     'mock',
     'moto[server]',
-    'pathlib2',
-    'responses',
-    'boto3',
+    'pathlib2 ; python_version<"3.4"',
     # Not used directly but allows boto GCE plugins to load.
     # https://github.com/GoogleCloudPlatform/compute-image-packages/issues/262
     'google-compute-engine==2.8.12',
@@ -58,10 +55,10 @@ install_requires = [
     'google-cloud-storage',
     'pluggy>=0.9.0, <0.14.0',
     'attrs>=18.2.0',
-    'six>=1.10'
+    'six>=1.10',
+    'typing  ; python_version<"3.5"',
+    'bz2file ; python_version<="3.4"',
 ]
-if sys.version_info[0] == 2:
-    install_requires.append('bz2file')
 
 setup(
     name='smart_open',

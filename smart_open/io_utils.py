@@ -7,6 +7,7 @@ import six
 
 @six.python_2_unicode_compatible
 class IOMode(object):
+    """An object representation of an I/O mode string."""
     def __init__(self, mode):
         # type: (str) -> None
         self._mode = self.string_to_flags(mode)
@@ -27,16 +28,19 @@ class IOMode(object):
     @property
     def read(self):
         # type: () -> bool
+        """Is reading from this stream allowed?"""
         return (self._mode & os.O_RDONLY) or (self._mode & os.O_RDWR) != 0
 
     @property
     def write(self):
         # type: () -> bool
+        """Is writing to this stream allowed?"""
         return (self._mode & os.O_WRONLY) or (self._mode & os.O_RDWR) != 0
 
     @property
     def append(self):
         # type: () -> bool
+        """Was the stream opened in append mode?"""
         return self._mode & os.O_APPEND != 0
 
     @property
@@ -47,11 +51,17 @@ class IOMode(object):
     @property
     def excl(self):
         # type: () -> bool
+        """When creating a file, is the file to be created exclusively?
+
+        If True, and the file already exists, the code opening the stream must
+        throw an exception.
+        """
         return self._mode & os.O_EXCL != 0
 
     @property
     def truncate(self):
         # type: () -> bool
+        """Should the file be truncated upon opening?"""
         return self._mode & os.O_TRUNC != 0
 
     @staticmethod
@@ -108,10 +118,28 @@ class IOMode(object):
 
         return flags
 
-    @staticmethod
-    def flags_to_string(flags, binary=False):
-        # type: (int, bool) -> str
-        """Convert I/O mode flags into a standardized mode string."""
+    @classmethod
+    def from_flags(cls, flags, binary=False):
+        # type: (int, bool) -> IOMode
+        """Convert I/O mode flags into an :class:`IOMode`.
+
+        Parameters
+        ----------
+
+        flags: int
+            The I/O mode flags to convert.
+        binary: bool
+            A boolean indicating if the file is in binary mode or not. Only
+            Windows provides explicit flags to indicate whether a file should be
+            opened in binary or text mode, which is why we need this. The
+            argument is ignored if either :data:`os.O_BINARY` or :data:`os.O_TEXT`
+            is set on ``flags``.
+
+        Returns
+        -------
+
+        An initialized :class:`IOMode` object.
+        """
         # TODO (dargueta): There's gotta be a cleaner way of doing this.
         if flags & (os.O_RDWR | os.O_CREAT | os.O_TRUNC):
             mode = "w+"
@@ -129,10 +157,10 @@ class IOMode(object):
         if flags & os.O_EXCL:
             mode += "x"
 
-        if (flags & getattr(os, "O_BINARY", 0)) or binary is True:
+        if (flags & getattr(os, "O_BINARY", 0)) or binary:
             mode += "b"
 
-        return mode
+        return cls(mode)
 
     def __int__(self):
         # type: () -> int
