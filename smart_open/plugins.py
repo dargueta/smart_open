@@ -1,5 +1,4 @@
-"""Support for implementing plugins that provide accessors for file system protocols or
-compression codecs.
+"""Support for implementing plugins.
 
 Implementing a Plugin
 =====================
@@ -13,8 +12,7 @@ import abc
 import threading
 import typing
 import warnings
-from typing import Any
-from typing import Dict
+from typing import MutableMapping
 
 import attr
 import pkg_resources
@@ -22,7 +20,6 @@ import six
 
 
 if typing.TYPE_CHECKING:
-    from typing import BinaryIO
     from smart_open.smart_open_lib import Uri
     from smart_open.io_utils import IOMode
 
@@ -31,8 +28,13 @@ ENTRY_POINT = "smart_open"
 """The name of the first half of the entry point we're using for plugins."""
 
 
-class SmartOpenFileSystemPlugin(abc.ABC):
-    """Base class for all plugins implementing a file system protocol."""
+class SmartOpenIOPluginBase(abc.ABC):
+    """The base class for all plugins."""
+
+    @abc.abstractmethod
+    def recognizes(self, uri):
+        # type: (Uri) -> bool
+        """Can this plugin handle the resource specified by the URI?"""
 
     @abc.abstractmethod
     def supports_read(self, protocol):
@@ -45,7 +47,7 @@ class SmartOpenFileSystemPlugin(abc.ABC):
         ----------
         protocol: str
             A protocol string. Guaranteed to be one of the strings returned by
-            :meth:`smart_open_implements_protocols`.
+            :meth:`recognized_protocols`.
 
         Returns
         -------
@@ -64,13 +66,21 @@ class SmartOpenFileSystemPlugin(abc.ABC):
         ----------
         protocol: str
             A protocol string. Guaranteed to be one of the strings returned by
-            :meth:`smart_open_implements_protocols`.
+            :meth:`recognized_protocols`.
 
         Returns
         -------
         A boolean indicating if this plugin supports write operations using the given
         protocol.
         """
+
+    @abc.abstractmethod
+    def supports_readwrite(self, protocol):
+        """Does this protocol support reading and writing on the same stream?"""
+
+
+class SmartOpenProtocolPlugin(SmartOpenIOPluginBase):
+    """Base class for all plugins implementing a file system protocol."""
 
     @abc.abstractmethod
     def supports_create(self, protocol):
@@ -83,7 +93,7 @@ class SmartOpenFileSystemPlugin(abc.ABC):
         ----------
         protocol: str
             A protocol string. Guaranteed to be one of the strings returned by
-            :meth:`smart_open_implements_protocols`.
+            :meth:`recognized_protocols`.
 
         Returns
         -------
@@ -104,7 +114,7 @@ class SmartOpenFileSystemPlugin(abc.ABC):
         ----------
         protocol: str
             A protocol string. Guaranteed to be one of the strings returned by
-            :meth:`smart_open_implements_protocols`.
+            :meth:`recognized_protocols`.
 
         Returns
         -------
@@ -141,25 +151,11 @@ class SmartOpenFileSystemPlugin(abc.ABC):
 class SmartOpenCompressionPlugin(abc.ABC):
     """Base class for all plugins implementing a compression codec."""
 
-    @abc.abstractmethod
-    def supports_compression_codec(self, uri, stream):
-        # type: (Uri, BinaryIO) -> bool
-        """Determine if this plugin supports the compression codec for the given
-        URI and/or file stream.
+    def supports_text_mode(self, uri):
+        # type: (Uri) -> bool
+        """Does this plugin support text mode natively for the given resource?
 
-        Parameters
-        ----------
-        uri: smart_open.smart_open_lib.Uri
-            The URI that smart_open will open.
-        stream: BinaryIO
-            The opened binary stream for the file that may need decompression.
-            This is solely provided for checking magic numbers in case the
-            extension doesn't provide enough information.
-
-        Returns
-        -------
-        A boolean indicating if this plugin supports the compression codec the
-        file is compressed with.
+        Most plugins will hard-code this to return True or False.
         """
 
 
@@ -231,7 +227,7 @@ class NoSuchPluginError(Exception):
 
 
 def discover_plugins(namespace, plugin_kind):
-    # type: (str, str) -> Dict[str, Any]
+    # type: (str, str) -> MutableMapping[str, SmartOpenIOPluginBase]
     """Load all plugins under the given namespace in the smart_open entry point.
 
     Parameters
@@ -297,7 +293,7 @@ class PluginRegistry(object):
 
     namespace = attr.ib(type=str)
     plugin_type = attr.ib(type=str)
-    _registry = attr.ib(type=Dict[str, Any], default=None)
+    _registry = attr.ib(type=MutableMapping[str, SmartOpenIOPluginBase], default=None)
     _lock = attr.ib(type=threading.Lock, factory=threading.RLock)
 
     def load_registered_plugins(self):
@@ -306,7 +302,7 @@ class PluginRegistry(object):
             self._registry = discover_plugins(self.namespace, self.plugin_type)
 
     def get_plugin(self, plugin_name):
-        # type: (str) -> Any
+        # type: (str) -> SmartOpenIOPluginBase
         """Retrieve a plugin with the given name.
 
         Parameters
@@ -324,6 +320,32 @@ class PluginRegistry(object):
             if plugin_name not in self._registry:
                 raise NoSuchPluginError(plugin_name, self.namespace)
             return self._registry[plugin_name]
+
+    def has_plugin(self, plugin_name):
+        # type: (str) -> bool
+        """Does this registry have a plugin with the given name?
+
+        Parameters
+        ----------
+        plugin_name: str
+            The name of the plugin to query for.
+
+        Returns
+        -------
+        A boolean indicating if the plugin is present.
+
+        .. note::
+
+            In a multithreading environment, to avoid `TOCTOU bugs`_ consider using
+            :meth:`.get_plugin` directly and catching :class:`NoSuchPluginError` than
+            using this.
+
+        .. _TOCTOU bugs: https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use
+        """
+        with self._lock:
+            if self._registry is None:
+                self.load_registered_plugins()
+            return plugin_name in self._registry
 
 
 COMPRESSION_PLUGINS = PluginRegistry("compression", "compression codec")
